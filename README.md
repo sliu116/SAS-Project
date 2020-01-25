@@ -4,7 +4,7 @@ The dataset contains 4900 independent records of variables related to competitiv
 
 Questions of Interest:
 Is there a difference between the total amount a competitor lifts and the sex? What about different choice of equipment?
-In addition, several models have been built to select a subset of predictors which are better at predicting the Wilkes score or help explaining whether a competitor won their last event?
+In addition, several models have been built to select a subset of predictors which are better at predicting the Wilks score or help explaining whether a competitor won their last event?
 
 
 
