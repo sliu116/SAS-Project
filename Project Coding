@@ -1,0 +1,164 @@
+libname mylib "/courses/dc36fc35ba27fe300/Assessments";
+ods noproctitle;
+data powerlifting;
+set mylib.powerlifting;
+run;
+
+%let classvar=Sex Equipment Schedule Group;
+%let var=AverageTime Age LiquidConsumed GymCost BodyweightKg BestSquatKg BestBenchKg BestDeadliftKg TotalKg Displacement;
+
+*Descriptive Statistics for all continuous variables;
+proc means data=powerlifting;
+var &var wilks;
+title1 'Descriptive Statistics for Continuous Variables';
+run;
+
+*Summary Statistics for categorical variables: Sex, Equipment; 
+proc freq data=powerlifting nlevels;
+tables Sex;
+title 'Summary Statistic for Sex Variable';
+run;
+proc freq data=powerlifting nlevels;
+tables Sex;
+title 'Summary Statistic for Sex Variable';
+run;
+
+*correlation matrix plot;
+proc corr data=powerlifting plots=matrix plots(maxpoints=none);
+var BodyweightKg BestSquatKg BestBenchKg BestDeadliftKg TotalKg;
+run;
+
+*Two Sample T-Test for difference of Sex;
+proc ttest data=powerlifting plots(shownull)=interval dist=lognormal;
+     class Sex;
+	 title "Two Sample t-test comparing Sex(F/M)";
+     var TotalKg;
+run;
+
+*One Way Anova for difference of Choice of Equioment;
+proc glm data=powerlifting;
+     class Equipment;
+     model TotalKg=Equipment;
+     title "One-way Anova with Equipment as Explanatory";
+     output out=powerlift predicted=predict cookd=cook;
+run;
+
+*Assumptions Checking;
+proc glm data=powerlifting plots=diagnostics;
+     class Equipment;
+     model TotalKg=Equipment;
+     means Equipment / welch;
+run;
+
+*Anova post hoc analysis
+a follow up analysis to explore where the difference is;
+proc glm data=powerlifting;
+     class Equipment;
+     model TotalKg=Equipment;
+     lsmeans Equipment / pdiff=all adjust=tukey;
+     title "Post-Hoc Analysis of ANOVA-Equipment as Explanatory";
+run;
+
+*Forward Selection for Wilks;
+proc glmselect data=powerlifting plots=all;
+     class &classvar;
+     title "Forward Selection Summary";
+     model Wilks=&classvar &var / selection = forward select = AIC showpvalues;
+run;
+
+*ANCOVA model;
+proc glm data=powerlifting plots(only)=diagnostics;
+     class Sex Equipment;
+     model Wilks=Sex Equipment AverageTime GymCost BodyweightKg BestSquatKg TotalKg;
+     title "ANCOVA Regression Model";
+run;
+
+*Convert Categorical variable into Binary version;
+data powerlifting;
+     set mylib.powerlifting;
+     if Winner= " " then Winner_Binary=.;
+     else if Winner="N" then Winner_Binary=0;
+     else Winner_Binary=1;
+run;
+
+*Determine the levels be clustered for Group;
+proc means data=powerlifting noprint nway;
+    class Group;
+    var Winner_Binary;
+    output out=powerlifting_greenacre mean=prop;
+run;
+
+ods output clusterhistory=work.cluster;
+
+proc cluster data=powerlifting_greenacre 
+    method=ward plots=(dendrogram(vertical height=rsq));
+    freq _freq_;
+    var prop;
+    id Group;
+run;
+
+*Combine the levels;
+data powerlifting_combined;
+    set powerlifting;
+	if Group in ("A" "B")
+	   then Group_Combined="level1";
+	else Group_Combined="level2";
+run;
+%let classvar2=Sex Equipment Schedule Group_Combined;
+
+*Fit the logistic regression for Winner;
+proc logistic data=powerlifting_Combined plots(only)=(effect oddsratio);
+     class &classvar2;
+     model Winner_Binary(event='1')= &var &classvar2 / clodds=pl
+selection=forward;
+run;
+
+*Create training and test dataset;
+proc sort data=powerlifting_combined out=powerlifting_sort;
+    by Winner;
+run;
+
+proc surveyselect noprint data=powerlifting_sort samprate=.7 
+    outall out=powerlifting_sampling;
+    strata Winner;
+run;
+
+data work.train(drop=selected SelectionProb SamplingWeight)
+    work.test(drop=selected SelectionProb SamplingWeight);
+    set powerlifting_sampling;
+    if selected then output work.train;
+    else output work.test;
+run;
+
+proc freq data=work.train;
+    table Winner;
+    title 'Frequency in Training Dataset';
+run;
+
+proc freq data=work.test;
+    table Winner;
+    title 'Frequency in Testing Dataset';
+run;
+proc logistic data=powerlifting_combined;
+    class Group_Combined Equipment;
+	model Winner_Binary(event='1')= Age Group_Combined Equipment;
+	score data=work.test out=testAssess(rename=(p_1=p_complex))
+	outroc=work.roc;
+run;
+
+*Fit the logistic regression for Winner with Wilks as explanatory;
+proc logistic data=powerlifting;
+	model Winner_Binary(event='1')= Wilks;
+	score data=work.testAssess out=testAssess(rename=(p_1=p_simple))
+	outroc=work.roc;
+run;
+
+*Out-of-Sample model performance comparison;
+proc logistic data=work.testAssess;
+    model Winner_Binary(event='1')=p_complex p_simple/nofit;
+    roc "Complex Model" p_complex;
+	roc "Simple Model" p_simple;
+	roccontrast "Comparing Models";
+run;     
+
+     
